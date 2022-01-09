@@ -34,8 +34,6 @@ impl<const N: usize> minicbor::Encode for SkipCbor<N> {
     }
 }
 
-pub type SomeSkipCbor = SkipCbor<0>;
-
 #[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct VrfCert(#[n(0)] pub ByteVec, #[n(1)] pub ByteVec);
 
@@ -106,6 +104,27 @@ pub struct TransactionInput {
 
     #[n(1)]
     pub index: u64,
+}
+
+// $nonce /= [ 0 // 1, bytes .size 32 ]
+
+#[derive(Encode, Decode, Debug, PartialEq)]
+#[cbor(index_only)]
+pub enum NonceVariant {
+    #[n(0)]
+    NeutralNonce,
+
+    #[n(1)]
+    Nonce,
+}
+
+#[derive(Encode, Decode, Debug, PartialEq)]
+pub struct Nonce {
+    #[n(0)]
+    pub variant: NonceVariant,
+
+    #[n(1)]
+    pub hash: Hash32,
 }
 
 pub type ScriptHash = ByteVec;
@@ -182,8 +201,8 @@ pub type Hash32 = ByteVec;
 
 pub type PoolKeyhash = Hash28;
 pub type Epoch = u64;
-pub type Genesishash = SkipCbor<5>;
-pub type GenesisDelegateHash = SkipCbor<6>;
+pub type Genesishash = ByteVec;
+pub type GenesisDelegateHash = ByteVec;
 pub type VrfKeyhash = Hash32;
 
 /* move_instantaneous_reward = [ 0 / 1, { * stake_credential => delta_coin } / coin ]
@@ -278,9 +297,7 @@ pub struct MoveInstantaneousReward {
     pub target: InstantaneousRewardTarget,
 }
 
-pub type Margin = SkipCbor<9>;
 pub type RewardAccount = ByteVec;
-pub type PoolOwners = SkipCbor<11>;
 
 pub type Port = u32;
 pub type IPv4 = ByteVec;
@@ -392,6 +409,8 @@ impl minicbor::encode::Encode for RationalNumber {
 }
 
 pub type UnitInterval = RationalNumber;
+
+pub type PositiveInterval = RationalNumber;
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub enum StakeCredential {
@@ -614,6 +633,81 @@ pub enum NetworkId {
     Two,
 }
 
+#[derive(Encode, Decode, Debug, PartialEq)]
+#[cbor(index_only)]
+pub enum Language {
+    #[n(0)]
+    PlutusV1,
+}
+
+pub type CostModel = Vec<i32>;
+
+pub type CostMdls = KeyValuePairs<Language, CostModel>;
+
+pub type ProtocolVersion = (u32, u32);
+
+#[derive(Encode, Decode, Debug, PartialEq)]
+#[cbor(map)]
+pub struct ProtocolParamUpdate {
+    #[n(0)]
+    pub minfee_a: Option<u32>,
+    #[n(1)]
+    pub minfee_b: Option<u32>,
+    #[n(2)]
+    pub max_block_body_size: Option<u32>,
+    #[n(3)]
+    pub max_transaction_size: Option<u32>,
+    #[n(4)]
+    pub max_block_header_size: Option<u32>,
+    #[n(5)]
+    pub key_deposit: Option<Coin>,
+    #[n(6)]
+    pub pool_deposit: Option<Coin>,
+    #[n(7)]
+    pub maximum_epoch: Option<Epoch>,
+    #[n(8)]
+    pub desired_number_of_stake_pools: Option<u32>,
+    #[n(9)]
+    pub pool_pledge_influence: Option<RationalNumber>,
+    #[n(10)]
+    pub expansion_rate: Option<UnitInterval>,
+    #[n(11)]
+    pub treasury_growth_rate: Option<UnitInterval>,
+    #[n(12)]
+    pub decentralization_constant: Option<UnitInterval>,
+    #[n(13)]
+    pub extra_entropy: Option<Nonce>,
+    #[n(14)]
+    pub protocol_version: Option<Vec<ProtocolVersion>>,
+    #[n(16)]
+    pub min_pool_cost: Option<Coin>,
+    #[n(17)]
+    pub ada_per_utxo_byte: Option<Coin>,
+    #[n(18)]
+    pub cost_models_for_script_languages: Option<CostMdls>,
+    #[n(19)]
+    pub execution_costs: Option<ExUnitPrices>,
+    #[n(20)]
+    pub max_tx_ex_units: Option<ExUnits>,
+    #[n(21)]
+    pub max_block_ex_units: Option<ExUnits>,
+    #[n(22)]
+    pub max_value_size: Option<u32>,
+    #[n(23)]
+    pub collateral_percentage: Option<u32>,
+    #[n(24)]
+    pub max_collateral_inputs: Option<u32>,
+}
+
+#[derive(Encode, Decode, Debug, PartialEq)]
+pub struct Update {
+    #[n(0)]
+    pub proposed_protocol_parameter_updates: KeyValuePairs<Genesishash, ProtocolParamUpdate>,
+
+    #[n(1)]
+    pub epoch: Epoch,
+}
+
 #[derive(Debug, PartialEq)]
 pub enum TransactionBodyComponent {
     Inputs(MaybeIndefArray<TransactionInput>),
@@ -622,7 +716,7 @@ pub enum TransactionBodyComponent {
     Ttl(u64),
     Certificates(Vec<Certificate>),
     Withdrawals(KeyValuePairs<RewardAccount, Coin>),
-    Update(Option<SkipCbor<22>>),
+    Update(Update),
     AuxiliaryDataHash(ByteVec),
     ValidityIntervalStart(u64),
     Mint(Multiasset<i64>),
@@ -1064,6 +1158,15 @@ pub struct ExUnits {
 }
 
 #[derive(Encode, Decode, Debug, PartialEq)]
+pub struct ExUnitPrices {
+    #[n(0)]
+    mem_price: PositiveInterval,
+
+    #[n(1)]
+    step_price: PositiveInterval,
+}
+
+#[derive(Encode, Decode, Debug, PartialEq)]
 #[cbor(index_only)]
 pub enum RedeemerTag {
     #[n(0)]
@@ -1143,7 +1246,7 @@ pub struct AlonzoAuxiliaryData {
     #[n(1)]
     pub native_scripts: Option<MaybeIndefArray<NativeScript>>,
     #[n(2)]
-    pub plutus_scripts: Option<PlutusScript>,
+    pub plutus_scripts: Option<Vec<PlutusScript>>,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -1235,7 +1338,7 @@ pub enum AuxiliaryData {
     Shelley(Metadata),
     ShelleyMa {
         transaction_metadata: Metadata,
-        auxiliary_scripts: Vec<SomeSkipCbor>,
+        auxiliary_scripts: Option<MaybeIndefArray<NativeScript>>,
     },
     Alonzo(AlonzoAuxiliaryData),
 }
@@ -1309,7 +1412,7 @@ pub struct Block {
     pub auxiliary_data_set: KeyValuePairs<TransactionIndex, AuxiliaryData>,
 
     #[n(4)]
-    pub invalid_transactions: MaybeIndefArray<TransactionIndex>,
+    pub invalid_transactions: Option<MaybeIndefArray<TransactionIndex>>,
 }
 
 #[derive(Encode, Decode, Debug)]
@@ -1332,13 +1435,24 @@ mod tests {
             include_str!("test_data/test7.block"),
             include_str!("test_data/test8.block"),
             include_str!("test_data/test9.block"),
+            // old block without invalid_transactions fields
+            include_str!("test_data/test10.block"),
+            // peculiar block with protocol update params
+            include_str!("test_data/test11.block"),
+            // peculiar block with decoding issue
+            // https://github.com/txpipe/oura/issues/37
+            include_str!("test_data/test12.block"),
+            // peculiar block with protocol update params, including nonce
+            include_str!("test_data/test13.block"),
         ];
 
         for (idx, block_str) in test_blocks.iter().enumerate() {
             println!("decoding test block {}", idx + 1);
             let bytes = hex::decode(block_str).expect(&format!("bad block file {}", idx));
+
             let block = BlockWrapper::decode_fragment(&bytes[..])
                 .expect(&format!("error decoding cbor for file {}", idx));
+
             let bytes2 =
                 to_vec(block).expect(&format!("error encoding block cbor for file {}", idx));
 

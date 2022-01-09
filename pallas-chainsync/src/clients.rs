@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
 
 use log::{debug, log_enabled, trace};
 
@@ -131,7 +131,7 @@ where
         Ok(Self {
             tip: Some(tip),
             cursor: None,
-            state: State::Idle,
+            state: State::Done,
             ..self
         })
     }
@@ -145,7 +145,7 @@ where
             trace!("content: {:?}", content);
         }
 
-        debug!("reporint block to observer");
+        debug!("reporting block to observer");
         self.observer.on_block(&self.cursor, &content)?;
 
         Ok(Self {
